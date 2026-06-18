@@ -1,0 +1,618 @@
+# ============================================================================
+# QuickQwen v10 — Utility Components
+# ============================================================================
+# Copied from main_v7.mojo. These are "keep as-is" functions that don't need
+# per-shape codegen specialization. The GEMV kernels are generated separately
+# by setup.py into gemv_kernels.mojo.
+
+from std.math import sqrt, sin, cos, pow, exp, abs, log, rsqrt
+from std.memory import alloc, memset_zero
+from std.memory.unsafe import bitcast
+from std.algorithm import parallelize
+from std.sys.info import simd_width_of
+from std.sys.intrinsics import llvm_intrinsic
+from std.complex import ComplexSIMD
+from random.random import seed, random_float64
+from gguf_loader import GGUFData, gguf_load, gguf_find_tensor, gguf_tensor_data_ptr, gguf_resolve_f32, fp16_to_f32, gguf_get_metadata_string, gguf_get_metadata_uint32, gguf_get_metadata_array_count
+from model_config import (
+    DIM, N_LAYERS, FFN_DIM, VOCAB_SIZE, SEQ_LEN, ROPE_THETA, RMS_NORM_EPS,
+    FULL_HEAD_DIM, FULL_N_Q_HEADS, FULL_N_KV_HEADS, FULL_Q_DIM, FULL_KV_DIM,
+    FULL_Q_TOTAL_DIM, ROTARY_DIM, FULL_GQA_RATIO,
+    LINEAR_N_HEADS, LINEAR_HEAD_DIM, LINEAR_Q_DIM, LINEAR_KV_DIM,
+    LINEAR_FUSED_DIM, LINEAR_CONV_KERNEL, LINEAR_STATE_HEADS, LINEAR_STATE_DIM,
+    N_DELTANET_LAYERS, DELTANET_STATE_SIZE, CONV_BUF_SIZE,
+    KV_CACHE_SIZE, KV_CACHE_CAP,
+    is_deltanet, is_full_attention, deltanet_state_offset, conv_buf_offset,
+    full_attn_kv_offset, deltanet_layer_index, full_attn_layer_index,
+)
+
+
+# ============================================================================
+# F32 GEMV (FP32 accum, for small F32 tensors like ssm_alpha/beta)
+# ============================================================================
+
+fn gemv_f32(
+    row: UnsafePointer[Float32, ImmutExternalOrigin],
+    x: UnsafePointer[Float32, MutExternalOrigin],
+    size: Int,
+) -> Float32:
+    comptime nelts = simd_width_of[DType.float32]()
+    var acc = SIMD[DType.float32, nelts](0)
+    var k = 0
+    while k + nelts <= size:
+        acc = acc + row.load[width=nelts](k) * x.load[width=nelts](k)
+        k += nelts
+    var result = acc.reduce_add()
+    while k < size:
+        result += row[k] * x[k]
+        k += 1
+    return result
+
+
+fn matmul_f32(
+    dst: UnsafePointer[Float32, MutExternalOrigin],
+    W: UnsafePointer[Float32, ImmutExternalOrigin],
+    x: UnsafePointer[Float32, MutExternalOrigin],
+    n_rows: Int,
+    n_cols: Int,
+):
+    @parameter
+    fn compute_row(row: Int):
+        dst[row] = gemv_f32(W + row * n_cols, x, n_cols)
+    parallelize[compute_row](n_rows)
+
+
+# ============================================================================
+# SIMD UTILITIES
+# ============================================================================
+
+@always_inline
+fn rmsnorm(
+    o: UnsafePointer[Float32, MutExternalOrigin],
+    i: UnsafePointer[Float32, MutExternalOrigin],
+    weight: UnsafePointer[Float32, ImmutExternalOrigin],
+    size: Int,
+    eps: Float32
+):
+    comptime nelts = simd_width_of[DType.float32]()
+    var ss_vec = SIMD[DType.float64, nelts](0)
+    var j = 0
+    while j + nelts <= size:
+        var v = i.load[width=nelts](j).cast[DType.float64]()
+        ss_vec = ss_vec + v * v
+        j += nelts
+    var ss = ss_vec.reduce_add()
+    while j < size:
+        var v = Float64(i[j])
+        ss += v * v
+        j += 1
+    var inv_rms = Float32(1.0 / sqrt(ss / Float64(size) + Float64(eps)))
+    j = 0
+    while j + nelts <= size:
+        var vi = i.load[width=nelts](j)
+        var vw = weight.load[width=nelts](j)
+        o.store[width=nelts](j, vw * vi * inv_rms)
+        j += nelts
+    while j < size:
+        o[j] = weight[j] * i[j] * inv_rms
+        j += 1
+
+
+@always_inline
+fn silu(
+    dst: UnsafePointer[Float32, MutExternalOrigin],
+    src: UnsafePointer[Float32, MutExternalOrigin],
+    size: Int,
+):
+    comptime nelts = simd_width_of[DType.float32]()
+    var j = 0
+    while j + nelts <= size:
+        var v = src.load[width=nelts](j)
+        dst.store[width=nelts](j, v / (SIMD[DType.float32, nelts](1.0) + exp(-v)))
+        j += nelts
+    while j < size:
+        var v = src[j]
+        if v < -20.0:
+            dst[j] = 0.0
+        else:
+            dst[j] = v / (1.0 + exp(-v))
+        j += 1
+
+
+@always_inline
+fn sigmoid(x: Float32) -> Float32:
+    if x < -20.0:
+        return 0.0
+    return 1.0 / (1.0 + exp(-x))
+
+
+@always_inline
+fn sigmoid_vec(
+    dst: UnsafePointer[Float32, MutExternalOrigin],
+    src: UnsafePointer[Float32, MutExternalOrigin],
+    size: Int,
+):
+    comptime nelts = simd_width_of[DType.float32]()
+    var j = 0
+    while j + nelts <= size:
+        var v = src.load[width=nelts](j)
+        dst.store[width=nelts](j, SIMD[DType.float32, nelts](1.0) / (SIMD[DType.float32, nelts](1.0) + exp(-v)))
+        j += nelts
+    while j < size:
+        var v = src[j]
+        if v < -20.0:
+            dst[j] = 0.0
+        else:
+            dst[j] = 1.0 / (1.0 + exp(-v))
+        j += 1
+
+
+@always_inline
+fn elem_add(
+    dst: UnsafePointer[Float32, MutExternalOrigin],
+    a: UnsafePointer[Float32, MutExternalOrigin],
+    b: UnsafePointer[Float32, MutExternalOrigin],
+    size: Int,
+):
+    comptime nelts = simd_width_of[DType.float32]()
+    var j = 0
+    while j + nelts <= size:
+        dst.store[width=nelts](j, a.load[width=nelts](j) + b.load[width=nelts](j))
+        j += nelts
+    while j < size:
+        dst[j] = a[j] + b[j]
+        j += 1
+
+
+@always_inline
+fn elem_mul(
+    dst: UnsafePointer[Float32, MutExternalOrigin],
+    a: UnsafePointer[Float32, MutExternalOrigin],
+    b: UnsafePointer[Float32, MutExternalOrigin],
+    size: Int,
+):
+    comptime nelts = simd_width_of[DType.float32]()
+    var j = 0
+    while j + nelts <= size:
+        dst.store[width=nelts](j, a.load[width=nelts](j) * b.load[width=nelts](j))
+        j += nelts
+    while j < size:
+        dst[j] = a[j] * b[j]
+        j += 1
+
+
+@always_inline
+fn elem_add_rmsnorm(
+    xb: UnsafePointer[Float32, MutExternalOrigin],
+    x: UnsafePointer[Float32, MutExternalOrigin],
+    residual_src: UnsafePointer[Float32, MutExternalOrigin],
+    norm_weight: UnsafePointer[Float32, ImmutExternalOrigin],
+    size: Int,
+    eps: Float32,
+):
+    comptime nelts = simd_width_of[DType.float32]()
+    var ss_vec = SIMD[DType.float64, nelts](0)
+    var j = 0
+    while j + nelts <= size:
+        var vi = x.load[width=nelts](j)
+        var si = residual_src.load[width=nelts](j)
+        var h = vi + si
+        x.store[width=nelts](j, h)
+        ss_vec = ss_vec + h.cast[DType.float64]() * h.cast[DType.float64]()
+        j += nelts
+    var ss = ss_vec.reduce_add()
+    while j < size:
+        var h = x[j] + residual_src[j]
+        x[j] = h
+        ss += Float64(h) * Float64(h)
+        j += 1
+    var inv_rms = Float32(1.0 / sqrt(ss / Float64(size) + Float64(eps)))
+    j = 0
+    while j + nelts <= size:
+        xb.store[width=nelts](j, norm_weight.load[width=nelts](j) * x.load[width=nelts](j) * inv_rms)
+        j += nelts
+    while j < size:
+        xb[j] = norm_weight[j] * x[j] * inv_rms
+        j += 1
+
+
+@always_inline
+fn rmsnorm_gated_silu_mul(
+    attn_out: UnsafePointer[Float32, MutExternalOrigin],
+    gate: UnsafePointer[Float32, MutExternalOrigin],
+    norm_weight: UnsafePointer[Float32, ImmutExternalOrigin],
+    head_dim: Int,
+    n_heads: Int,
+    eps: Float32,
+):
+    comptime nelts = simd_width_of[DType.float32]()
+    for h in range(n_heads):
+        var off = h * head_dim
+        var ss_vec = SIMD[DType.float64, nelts](0)
+        var j = 0
+        while j + nelts <= head_dim:
+            var v = attn_out.load[width=nelts](off + j).cast[DType.float64]()
+            ss_vec = ss_vec + v * v
+            j += nelts
+        var ss = ss_vec.reduce_add()
+        while j < head_dim:
+            ss += Float64(attn_out[off + j]) * Float64(attn_out[off + j])
+            j += 1
+        var inv_rms = Float32(1.0 / sqrt(ss / Float64(head_dim) + Float64(eps)))
+        j = 0
+        while j + nelts <= head_dim:
+            var vi = attn_out.load[width=nelts](off + j)
+            var gi = gate.load[width=nelts](off + j)
+            var normed = norm_weight.load[width=nelts](j) * vi * inv_rms
+            var silu_g = gi / (SIMD[DType.float32, nelts](1.0) + exp(-gi))
+            attn_out.store[width=nelts](off + j, normed * silu_g)
+            j += nelts
+        while j < head_dim:
+            var vi = attn_out[off + j]
+            var gi = gate[off + j]
+            var normed = norm_weight[j] * vi * inv_rms
+            if gi < -20.0:
+                attn_out[off + j] = 0.0
+            else:
+                attn_out[off + j] = normed * (gi / (1.0 + exp(-gi)))
+            j += 1
+
+
+@always_inline
+fn softplus(x: Float32) -> Float32:
+    if x > 20.0:
+        return x
+    return log(1.0 + exp(x))
+
+
+@always_inline
+fn l2_normalize(
+    x: UnsafePointer[Float32, MutExternalOrigin],
+    size: Int,
+) -> Float32:
+    comptime nelts = simd_width_of[DType.float32]()
+    var ss_vec = SIMD[DType.float32, nelts](0)
+    var j = 0
+    while j + nelts <= size:
+        var v = x.load[width=nelts](j)
+        ss_vec = ss_vec + v * v
+        j += nelts
+    var ss = ss_vec.reduce_add()
+    while j < size:
+        ss += x[j] * x[j]
+        j += 1
+    var norm = sqrt(ss)
+    if norm > 0.0:
+        var inv_norm = 1.0 / norm
+        j = 0
+        while j + nelts <= size:
+            x.store[width=nelts](j, x.load[width=nelts](j) * inv_norm)
+            j += nelts
+        while j < size:
+            x[j] = x[j] * inv_norm
+            j += 1
+    return norm
+
+
+# ============================================================================
+# SOFTMAX
+# ============================================================================
+
+fn softmax(
+    scores: UnsafePointer[Float32, MutExternalOrigin],
+    size: Int,
+):
+    var max_val = scores[0]
+    for i in range(1, size):
+        if scores[i] > max_val:
+            max_val = scores[i]
+    comptime nelts = simd_width_of[DType.float32]()
+    var sum_vec = SIMD[DType.float64, nelts](0)
+    var j = 0
+    while j + nelts <= size:
+        var e = exp(scores.load[width=nelts](j) - max_val)
+        scores.store[width=nelts](j, e)
+        sum_vec = sum_vec + e.cast[DType.float64]()
+        j += nelts
+    var sum_val = sum_vec.reduce_add()
+    while j < size:
+        var e = exp(scores[j] - max_val)
+        scores[j] = e
+        sum_val += Float64(e)
+        j += 1
+    var inv_sum = Float32(1.0 / sum_val)
+    j = 0
+    while j + nelts <= size:
+        scores.store[width=nelts](j, scores.load[width=nelts](j) * inv_sum)
+        j += nelts
+    while j < size:
+        scores[j] *= inv_sum
+        j += 1
+
+
+# ============================================================================
+# RoPE
+# ============================================================================
+
+@always_inline
+fn rope(
+    x: UnsafePointer[Float32, MutExternalOrigin],
+    pos: Int,
+    n_pairs: Int,
+    head_dim: Int,
+    rope_theta: Float64,
+):
+    comptime nelts = simd_width_of[DType.float32]()
+    var batch = 0
+    while batch + nelts <= n_pairs:
+        var a_vec = SIMD[DType.float32, nelts](0)
+        var b_vec = SIMD[DType.float32, nelts](0)
+        for k in range(nelts):
+            a_vec[k] = x[2 * (batch + k)]
+            b_vec[k] = x[2 * (batch + k) + 1]
+
+        var angles = SIMD[DType.float64, nelts](0)
+        for k in range(nelts):
+            var freq = 1.0 / pow(rope_theta, 2.0 * Float64(batch + k) / Float64(n_pairs * 2))
+            angles[k] = Float64(pos) * freq
+        var c = cos(angles).cast[DType.float32]()
+        var s = sin(angles).cast[DType.float32]()
+
+        var r = ComplexSIMD(a_vec, b_vec) * ComplexSIMD(c, s)
+        for k in range(nelts):
+            x[2 * (batch + k)] = r.re[k]
+            x[2 * (batch + k) + 1] = r.im[k]
+        batch += nelts
+    for i in range(batch * 2, n_pairs * 2, 2):
+        var idx = i // 2
+        var freq = 1.0 / pow(rope_theta, 2.0 * Float64(idx) / Float64(n_pairs * 2))
+        var angle = Float64(pos) * freq
+        var cv = Float32(cos(angle))
+        var sv = Float32(sin(angle))
+        var a = x[i]
+        var b = x[i + 1]
+        x[i] = a * cv - b * sv
+        x[i + 1] = a * sv + b * cv
+
+
+@always_inline
+fn rope_per_head(
+    x: UnsafePointer[Float32, MutExternalOrigin],
+    pos: Int,
+    n_heads: Int,
+    head_dim: Int,
+    rotary_dims: Int,
+    rope_theta: Float64,
+):
+    var n_pairs = rotary_dims / 2
+    for h in range(n_heads):
+        rope(x + h * head_dim, pos, n_pairs, head_dim, rope_theta)
+
+
+# ============================================================================
+# PER-HEAD RMSNORM
+# ============================================================================
+
+@always_inline
+fn per_head_rmsnorm(
+    q: UnsafePointer[Float32, MutExternalOrigin],
+    norm_weight: UnsafePointer[Float32, ImmutExternalOrigin],
+    n_heads: Int,
+    head_dim: Int,
+    eps: Float32,
+):
+    for h in range(n_heads):
+        var offset = h * head_dim
+        rmsnorm(q + offset, q + offset, norm_weight, head_dim, eps)
+
+
+# ============================================================================
+# FUSED CAUSAL CONV1D + SILU
+# ============================================================================
+
+fn causal_conv1d_silu(
+    dst: UnsafePointer[Float32, MutExternalOrigin],
+    inp: UnsafePointer[Float32, MutExternalOrigin],
+    kernel: UnsafePointer[Float32, ImmutExternalOrigin],
+    conv_buf: UnsafePointer[Float32, MutExternalOrigin],
+    pos: Int,
+):
+    var buf_slot = pos % LINEAR_CONV_KERNEL
+    for c in range(LINEAR_FUSED_DIM):
+        conv_buf[buf_slot * LINEAR_FUSED_DIM + c] = inp[c]
+    for c in range(LINEAR_FUSED_DIM):
+        var sum = Float32(0.0)
+        for t in range(LINEAR_CONV_KERNEL):
+            var hist_pos = pos - (LINEAR_CONV_KERNEL - 1 - t)
+            if hist_pos >= 0:
+                var hist_slot = hist_pos % LINEAR_CONV_KERNEL
+                sum += kernel[c * LINEAR_CONV_KERNEL + t] * conv_buf[hist_slot * LINEAR_FUSED_DIM + c]
+        if sum < -20.0:
+            dst[c] = 0.0
+        else:
+            dst[c] = sum / (1.0 + exp(-sum))
+
+
+# ============================================================================
+# EMBED TOKEN FROM Q8_0 BLOCKS
+# ============================================================================
+
+fn embed_token_q8(
+    x: UnsafePointer[Float32, MutExternalOrigin],
+    embd_blocks: UnsafePointer[UInt8, ImmutExternalOrigin],
+    token_id: Int,
+):
+    var n_blocks = DIM >> 5
+    var tile_idx = token_id >> 3
+    var row_in_tile = token_id & 7
+    var tile_data = embd_blocks + tile_idx * n_blocks * 8 * 34
+    for b in range(n_blocks):
+        var bp = tile_data + b * 272 + row_in_tile * 34
+        var scale = fp16_to_f32(UInt16(Int(bp[0]) | (Int(bp[1]) << 8)))
+        var qs = bp + 2
+        var base = b << 5
+        for i in range(32):
+            var signed_val = (Int(qs[i]) ^ 0x80) - 0x80
+            x[base + i] = scale * Float32(signed_val)
+
+
+# ============================================================================
+# SAMPLING
+# ============================================================================
+
+fn argmax(ptr: UnsafePointer[Float32, MutExternalOrigin], size: Int) -> Int:
+    var best_idx = 0
+    var best_val = ptr[0]
+    for i in range(1, size):
+        if ptr[i] > best_val:
+            best_val = ptr[i]
+            best_idx = i
+    return best_idx
+
+
+fn sample_token(
+    logits: UnsafePointer[Float32, MutExternalOrigin],
+    vocab_size: Int,
+    temperature: Float32,
+    top_k: Int,
+    top_p: Float32,
+) -> Int:
+    var inv_temp = 1.0 / temperature
+    for i in range(vocab_size):
+        logits[i] *= inv_temp
+
+    var max_val = logits[0]
+    for i in range(1, vocab_size):
+        if logits[i] > max_val:
+            max_val = logits[i]
+
+    var top_k_vals = alloc[Float32](top_k)
+    var top_k_idx = alloc[Int](top_k)
+    for k in range(top_k):
+        top_k_vals[k] = Float32(-1e30)
+        top_k_idx[k] = 0
+
+    for i in range(vocab_size):
+        var v = logits[i]
+        if v > top_k_vals[top_k - 1]:
+            top_k_vals[top_k - 1] = v
+            top_k_idx[top_k - 1] = i
+            var j = top_k - 1
+            while j > 0 and top_k_vals[j] > top_k_vals[j - 1]:
+                var tv = top_k_vals[j]
+                var ti = top_k_idx[j]
+                top_k_vals[j] = top_k_vals[j - 1]
+                top_k_idx[j] = top_k_idx[j - 1]
+                top_k_vals[j - 1] = tv
+                top_k_idx[j - 1] = ti
+                j -= 1
+
+    for k in range(top_k):
+        top_k_vals[k] = exp(top_k_vals[k] - top_k_vals[0])
+
+    var total = Float32(0.0)
+    for k in range(top_k):
+        total += top_k_vals[k]
+
+    var cumsum = Float32(0.0)
+    var cutoff = top_k
+    for k in range(top_k):
+        cumsum += top_k_vals[k] / total
+        if cumsum >= top_p:
+            cutoff = k + 1
+            break
+
+    var total2 = Float32(0.0)
+    for k in range(cutoff):
+        total2 += top_k_vals[k]
+
+    var r = Float32(random_float64(0.0, 1.0))
+    var cumsum2 = Float32(0.0)
+    var chosen = top_k_idx[0]
+    for k in range(cutoff):
+        cumsum2 += top_k_vals[k] / total2
+        if cumsum2 >= r:
+            chosen = top_k_idx[k]
+            break
+
+    return chosen
+
+
+# ============================================================================
+# Activation quantization: float32 → int8 per 32-element blocks (Q8_0 style)
+# ============================================================================
+
+@always_inline
+fn _hmax_f32x4(v: SIMD[DType.float32, 4]) -> Float32:
+    var a = max(v[0], v[1])
+    var b = max(v[2], v[3])
+    return max(a, b)
+
+@always_inline
+fn _simd_max_f32x4(
+    a: SIMD[DType.float32, 4], b: SIMD[DType.float32, 4]
+) -> SIMD[DType.float32, 4]:
+    return llvm_intrinsic["llvm.x86.sse.max.ps", SIMD[DType.float32, 4]](a, b)
+
+@always_inline
+fn _pack_and_store_16(
+    dst: UnsafePointer[Int8, MutExternalOrigin],
+    offset: Int,
+    v0: SIMD[DType.float32, 4],
+    v1: SIMD[DType.float32, 4],
+    v2: SIMD[DType.float32, 4],
+    v3: SIMD[DType.float32, 4],
+    inv_scale: SIMD[DType.float32, 4],
+):
+    var i0 = llvm_intrinsic["llvm.x86.sse2.cvtps2dq", SIMD[DType.int32, 4]](v0 * inv_scale)
+    var i1 = llvm_intrinsic["llvm.x86.sse2.cvtps2dq", SIMD[DType.int32, 4]](v1 * inv_scale)
+    var i2 = llvm_intrinsic["llvm.x86.sse2.cvtps2dq", SIMD[DType.int32, 4]](v2 * inv_scale)
+    var i3 = llvm_intrinsic["llvm.x86.sse2.cvtps2dq", SIMD[DType.int32, 4]](v3 * inv_scale)
+    var p01 = llvm_intrinsic["llvm.x86.sse2.packssdw.128", SIMD[DType.int16, 8]](i0, i1)
+    var p23 = llvm_intrinsic["llvm.x86.sse2.packssdw.128", SIMD[DType.int16, 8]](i2, i3)
+    var r = llvm_intrinsic["llvm.x86.sse2.packsswb.128", SIMD[DType.int8, 16]](p01, p23)
+    dst.store[width=16](offset, r)
+
+fn quantize_f32_to_q8_0(
+    x: UnsafePointer[Float32, ImmutExternalOrigin],
+    dst_q: UnsafePointer[Int8, MutExternalOrigin],
+    dst_scale: UnsafePointer[Float32, MutExternalOrigin],
+    n_blocks: Int,
+):
+    var b = 0
+    while b < n_blocks:
+        var base = b * 32
+        var v0 = x.load[width=4](base + 0)
+        var v1 = x.load[width=4](base + 4)
+        var v2 = x.load[width=4](base + 8)
+        var v3 = x.load[width=4](base + 12)
+        var v4 = x.load[width=4](base + 16)
+        var v5 = x.load[width=4](base + 20)
+        var v6 = x.load[width=4](base + 24)
+        var v7 = x.load[width=4](base + 28)
+        var a0 = abs(v0)
+        var a1 = abs(v1)
+        var a2 = abs(v2)
+        var a3 = abs(v3)
+        var a4 = abs(v4)
+        var a5 = abs(v5)
+        var a6 = abs(v6)
+        var a7 = abs(v7)
+        var m04 = _simd_max_f32x4(a0, a4)
+        var m15 = _simd_max_f32x4(a1, a5)
+        var m26 = _simd_max_f32x4(a2, a6)
+        var m37 = _simd_max_f32x4(a3, a7)
+        var m0145 = _simd_max_f32x4(m04, m15)
+        var m2367 = _simd_max_f32x4(m26, m37)
+        var m_all = _simd_max_f32x4(m0145, m2367)
+        var amax = _hmax_f32x4(m_all)
+        var scale = amax / 127.0
+        dst_scale[b] = scale
+        if scale > 0.0:
+            var inv_scale = SIMD[DType.float32, 4](1.0 / scale)
+            _pack_and_store_16(dst_q, base, v0, v1, v2, v3, inv_scale)
+            _pack_and_store_16(dst_q, base + 16, v4, v5, v6, v7, inv_scale)
+        else:
+            dst_q.store[width=16](base, SIMD[DType.int8, 16](0))
+            dst_q.store[width=16](base + 16, SIMD[DType.int8, 16](0))
+        b += 1

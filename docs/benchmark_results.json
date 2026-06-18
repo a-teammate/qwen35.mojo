@@ -1,0 +1,134 @@
+[
+  {
+    "label": "prompt~10/decode=50",
+    "engine": "quickqwen",
+    "prefill_tokens": 24,
+    "prefill_ms": 1636,
+    "prefill_tps": 14.66992665036675,
+    "decode_tokens": 47,
+    "decode_ms": 3974,
+    "decode_tps": 11.82687468545546,
+    "rep": 0
+  },
+  {
+    "label": "prompt~10/decode=50",
+    "engine": "ik_llama.cpp",
+    "prefill_tokens": 24,
+    "prefill_ms": 326.21,
+    "prefill_tps": 73.57223874191472,
+    "decode_tokens": 49,
+    "decode_ms": 2881.33,
+    "decode_tps": 17.006035407259844,
+    "rep": 0
+  },
+  {
+    "label": "prompt~10/decode=50",
+    "engine": "quickqwen",
+    "prefill_tokens": 24,
+    "prefill_ms": 1625,
+    "prefill_tps": 14.76923076923077,
+    "decode_tokens": 47,
+    "decode_ms": 4032,
+    "decode_tps": 11.656746031746032,
+    "rep": 1
+  },
+  {
+    "label": "prompt~10/decode=50",
+    "engine": "ik_llama.cpp",
+    "prefill_tokens": 24,
+    "prefill_ms": 326.39,
+    "prefill_tps": 73.53166457305677,
+    "decode_tokens": 49,
+    "decode_ms": 2911.52,
+    "decode_tps": 16.829697202835632,
+    "rep": 1
+  },
+  {
+    "label": "prompt~10/decode=50",
+    "engine": "quickqwen",
+    "prefill_tokens": 24,
+    "prefill_ms": 1617,
+    "prefill_tps": 14.84230055658627,
+    "decode_tokens": 47,
+    "decode_ms": 4021,
+    "decode_tps": 11.688634667993037,
+    "rep": 2
+  },
+  {
+    "label": "prompt~10/decode=50",
+    "engine": "ik_llama.cpp",
+    "prefill_tokens": 24,
+    "prefill_ms": 322.42,
+    "prefill_tps": 74.43706966069101,
+    "decode_tokens": 49,
+    "decode_ms": 2712.01,
+    "decode_tps": 18.067779986061996,
+    "rep": 2
+  },
+  {
+    "label": "prompt~100/decode=50",
+    "engine": "quickqwen",
+    "prefill_tokens": 144,
+    "prefill_ms": 9833,
+    "prefill_tps": 14.644564222516017,
+    "decode_tokens": 50,
+    "decode_ms": 4381,
+    "decode_tps": 11.41291942478886,
+    "rep": 0
+  },
+  {
+    "label": "prompt~100/decode=50",
+    "engine": "ik_llama.cpp",
+    "prefill_tokens": 144,
+    "prefill_ms": 961.61,
+    "prefill_tps": 149.74885868491384,
+    "decode_tokens": 49,
+    "decode_ms": 2849.6,
+    "decode_tps": 17.195395845030884,
+    "rep": 0
+  },
+  {
+    "label": "prompt~100/decode=50",
+    "engine": "quickqwen",
+    "prefill_tokens": 144,
+    "prefill_ms": 9968,
+    "prefill_tps": 14.446227929373997,
+    "decode_tokens": 50,
+    "decode_ms": 4336,
+    "decode_tps": 11.531365313653136,
+    "rep": 1
+  },
+  {
+    "label": "prompt~100/decode=50",
+    "engine": "ik_llama.cpp",
+    "prefill_tokens": 144,
+    "prefill_ms": 1017.69,
+    "prefill_tps": 141.49691949414853,
+    "decode_tokens": 49,
+    "decode_ms": 2867.38,
+    "decode_tps": 17.088770933744392,
+    "rep": 1
+  },
+  {
+    "label": "prompt~100/decode=50",
+    "engine": "quickqwen",
+    "prefill_tokens": 144,
+    "prefill_ms": 9941,
+    "prefill_tps": 14.48546423901016,
+    "decode_tokens": 50,
+    "decode_ms": 4354,
+    "decode_tps": 11.483693155718878,
+    "rep": 2
+  },
+  {
+    "label": "prompt~100/decode=50",
+    "engine": "ik_llama.cpp",
+    "prefill_tokens": 144,
+    "prefill_ms": 960.92,
+    "prefill_tps": 149.85638762852267,
+    "decode_tokens": 49,
+    "decode_ms": 2848.24,
+    "decode_tps": 17.20360643765975,
+    "rep": 2
+  }
+]

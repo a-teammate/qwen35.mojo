@@ -1,0 +1,17 @@
+# Model weights (download separately — see README)
+*.gguf
+*.bin
+
+# Compiled binaries
+quickqwen
+run_inference
+*.o
+
+# Python
+__pycache__/
+*.pyc
+
+# Editor / OS
+.DS_Store
+.idea/
+.vscode/
