@@ -16,8 +16,7 @@
 ## Performance Baseline (v13 vs ik_llama.cpp)
 
 > **Note:** This section benchmarks against [ik_llama.cpp](https://github.com/ikawrakow/ik_llama.cpp),
-> the optimized fork studied during development. The README's headline table uses **stock
-> llama.cpp** instead — a different (slower) baseline.
+> the optimized fork studied during development.
 
 | Metric | QuickQwen v13 | ik_llama.cpp | Ratio |
 |--------|---------------|--------------|-------|

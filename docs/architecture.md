@@ -166,7 +166,7 @@ Mojo version: see `.mojo-version` (currently 0.26.2).
 | `setup_model.py` | One-command setup: mojo check, model download, transpiler → `build/`, compile |
 | `_components.mojo` | Shared: SIMD helpers, RMSNorm, softmax, sampling |
 | `gguf_loader.mojo` | GGUF parser + Q8_0 tiled repacking |
-| `tokenizer.mojo` | BPE tokenizer (Python `regex` interop, cold start ~90s) |
+| `tokenizer.mojo` | BPE tokenizer (Python `regex` interop) |
 | `build/model_config.mojo` | Generated architecture constants + offset functions |
 | `build/run_inference.mojo` | Generated inference engine — **do not hand-edit** |
 

@@ -1,6 +1,6 @@
-# Opportunities — QuickQwen
+# Opportunities to close performance gap
 
-Ranked by expected impact. All forward-looking — none are started or committed.
+not in here: functional extensions.
 
 ---
 
@@ -29,7 +29,7 @@ Ranked by expected impact. All forward-looking — none are started or committed
 | O9 | **SIMD rmsnorm / silu** | <1% | Non-GEMV ops are only 11% of runtime. Not worth the complexity. |
 | O10 | **iGPU TileTensor dispatch** | Potentially large | CPU pointer path (validated) → GPU TileTensor path (planned). `modular_ref/` has dispatch patterns. Requires DeviceContext infrastructure. |
 | O11 | **Conv1d transpose** | Enables stdlib SIMD | Transpose `[C,K]` → `[K,C]` at load time. 1.7MB total across 18 layers. Unblocks `modular_ref` causal_conv1d_update_cpu. |
-| O12 | **Tokenizer cold start fix** | −90s startup | Python `regex` import takes ~90s. Port to native Mojo BPE. |
+| O12 | **Native Mojo tokenizer** | removes pip dep | BPE uses Python's `regex` module (a pip dependency, not stdlib). Port to native Mojo to drop the Python interop overhead and the `regex` install requirement. |
 
 ## Dependencies
 

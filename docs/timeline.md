@@ -19,7 +19,7 @@ Historical record. Dates are April–May 2026.
 | v11 | v10 + repack + megafusion + streaming + online attn | 4.1–4.6 sustained | ✅ correct |
 | v12 | W8A8 SignedDot kernel (psign→pmaddubs→pmaddwd) | 11.7 | ✅ correct |
 | v13 | v12 + SIMD quantization | 11.6–15.5 | ✅ **latest working** |
-| v13_threadpool | Atomic work-stealing `run_tiles` | ~15 | all numbers invalid |
+| v13_threadpool | Atomic work-stealing `run_tiles` | ~19.7 | all numbers invalid |
 | v13_exp_layout | x4 layout | — | correct but 18% slower, abandoned |
 | v13_plus_phase2 | x4 phase 2 | — | ❌ garbage output, abandoned |
 

@@ -47,12 +47,12 @@ output quality.
 
 ---
 
-## Performance
+## Performance? Okayish.
+
+Despite the name "quick qwen" we are not there yet. The main feature is the nano binary size and slim codebase. The performance on my dev machine? A tint worse than llama.cpp.
 
 All numbers on the dev machine: **Intel i7-10610U (4C/8T, 15 W, AVX2+FMA3, DDR4-3200)**,
-Q8_0 weights, CPU governor = `performance`. The reference is **llama.cpp**, the standard C++ CPU
-inference engine. I benchmarked a stock build, version b1-2083217 (built from source 2026-06-18,
-cmake Release, GGML_CUDA=OFF).
+Q8_0 weights, CPU governor = `performance`. The reference is **llama.cpp**, the standard C++ CPU inference engine. I benchmarked a stock build, version b1-2083217 (built from source 2026-06-18, cmake Release, GGML_CUDA=OFF).
 
 | Phase | quickqwen | llama.cpp (stock) | Ratio |
 |-------|----------:|------------------:|------:|
@@ -86,8 +86,7 @@ Full trajectory, including the versions that were silently broken:
 
 ## The kernel: W8A8 SignedDot
 
-The decode bottleneck is GEMV, bound by memory bandwidth. The inner loop is three AVX2 intrinsics
-that replace ~20 float32 ops, one block of 32 int8 weights × 32 int8 activations at a time:
+The decode bottleneck is GEMV, bound by memory bandwidth. The inner loop is three AVX2 intrinsics that replace ~20 float32 ops, one block of 32 int8 weights × 32 int8 activations at a time:
 
 ```
 vpsignb     # resolve signs for signed×signed
@@ -96,18 +95,14 @@ vpmaddwd    # int16 × int16 → int32 madd (8 → 8)
             # then fp16 weight scale × fp32 activation scale → f32 accumulate
 ```
 
-The engine quantizes activations to Q8_0 once per GEMV call and reuses them across all rows (0.7%
-relative error vs f32). Weights sit in a tiled Q8_0 layout (8 consecutive rows interleaved), so the
-engine loads the activation vector once and reuses it. Full kernel + layout notes:
+The engine quantizes activations to Q8_0 once per GEMV call and reuses them across all rows (0.7% relative error vs f32). Weights sit in a tiled Q8_0 layout (8 consecutive rows interleaved), so the engine loads the activation vector once and reuses it. Full kernel + layout notes:
 [`docs/performance.md`](docs/performance.md).
 
 ### The transpiler
 
 `setup_model.py` is a small Python program (stdlib only) that reads the GGUF metadata and
-**emits Mojo specialized at compile time**. It monomorphizes every GEMV to its exact
-`(rows, cols)` shape, so the compiler knows the tile sizes, unroll factors, and register usage.
-That specialization turned a 4× decode win (v7→v10). It specializes only to the 0.8B shape
-today (see Limitations).
+**emits Mojo specialized at compile time**. It monomorphizes every GEMV to its exact `(rows, cols)` shape, so the compiler knows the tile sizes, unroll factors, and register usage.
+That specialization turned a 4× decode win (v7→v10). It specializes only to the 0.8B shape today (see Limitations).
 
 ---
 
@@ -179,9 +174,9 @@ python setup_model.py          # regenerates build/ and rebuilds
   supporting other sizes means generalizing `setup_model.py`. out of scope for now.
 - **Slow prefill.** The prefill path runs at ~0.15–0.25× of llama.cpp (about 4–7× behind) because
   the engine has no batched GEMM. Decode is the optimized path.
-- **Tokenizer via Python interop.** BPE uses Python's `regex` module, so the first run pays a
-  Python startup cost. A native Mojo tokenizer is the next step
-  ([`docs/opportunities.md`](docs/opportunities.md), O12).
+- **Tokenizer via Python interop.** BPE uses Python's `regex` module (a pip dependency, not
+  stdlib). The import itself is fast (<0.1 s), but it adds a runtime dependency on CPython.
+  A native Mojo tokenizer would remove this ([`docs/opportunities.md`](docs/opportunities.md), O12).
 - **One CPU class tested.** I developed it on a 15 W AVX2 laptop (no AVX-512/VNNI). I chose Mojo
   for its cross-backend support, but only the x86-64 AVX2 path is exercised here.
 - **No batching, no server, no GPU.** Single-stream token-by-token decode only.

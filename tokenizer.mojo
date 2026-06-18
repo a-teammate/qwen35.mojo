@@ -2,31 +2,10 @@ from collections.list import List
 from collections.dict import Dict
 from gguf_loader import (
     GGUFData,
-    _read_bytes_as_string,
-    _read_u32,
-    _read_u64,
-    gguf_find_metadata,
     gguf_get_metadata_uint32,
+    gguf_get_metadata_string_array,
 )
 from std.python import Python
-
-fn _get_string_array(gguf: GGUFData, key: String) -> List[String]:
-    var result = List[String]()
-    var idx = gguf_find_metadata(gguf, key)
-    if idx == -1: return result^
-    if gguf.md_value_types[idx] != 9: return result^
-    var off = gguf.md_value_offsets[idx]
-    var elem_type = _read_u32(gguf.data, off)
-    off += 4
-    if elem_type != 8: return result^
-    var count = _read_u64(gguf.data, off)
-    off += 8
-    for _ in range(count):
-        var slen = _read_u64(gguf.data, off)
-        off += 8
-        result.append(_read_bytes_as_string(gguf.data, off, slen))
-        off += slen
-    return result^
 
 fn _build_byte_to_unicode() -> List[String]:
     var byte_to_char = List[String]()
@@ -69,11 +48,11 @@ struct Tokenizer:
         self.bos_id = gguf_get_metadata_uint32(gguf, "tokenizer.ggml.bos_token_id")
         self.eos_id = gguf_get_metadata_uint32(gguf, "tokenizer.ggml.eos_token_id")
 
-        self.vocab = _get_string_array(gguf, "tokenizer.ggml.tokens")
+        self.vocab = gguf_get_metadata_string_array(gguf, "tokenizer.ggml.tokens")
         for i in range(len(self.vocab)):
             self.vocab_to_id[self.vocab[i]] = i
 
-        var merges = _get_string_array(gguf, "tokenizer.ggml.merges")
+        var merges = gguf_get_metadata_string_array(gguf, "tokenizer.ggml.merges")
         for rank in range(len(merges)):
             self.merge_rank[merges[rank]] = rank
 
