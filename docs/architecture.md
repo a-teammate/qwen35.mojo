@@ -3,7 +3,7 @@
 Qwen3.5-0.8B inference engine in Mojo.
 Hybrid Gated DeltaNet (18 layers) + GQA Softmax Attention (6 layers).
 Q8_0 GGUF, token-by-token decode.
-`setup.py` Python transpiler generates per-shape-specialized GEMV kernels.
+`setup_model.py` Python transpiler generates per-shape-specialized GEMV kernels.
 
 ---
 
@@ -100,7 +100,7 @@ Q8_0 GGUF, token-by-token decode.
 | blk.{N}.ffn_down.weight | [1024, 3584] | Q8_0 | |
 
 FA layers: same FFN tensors, separate Q/K/V projections + q_norm/k_norm + attn_output_gate.
-Exact GGUF tensor names for FA differ from DN — see `setup.py` resolve_layer_weights.
+Exact GGUF tensor names for FA differ from DN — see `setup_model.py` resolve_layer_weights.
 
 ---
 
@@ -151,9 +151,8 @@ Exact GGUF tensor names for FA differ from DN — see `setup.py` resolve_layer_w
 ## Build & Run
 
 ```bash
-mojo build run_inference-generated.mojo -o quickqwen -Xlinker -lm
-echo "Hello" | ./quickqwen          # stdin pipe (v12+)
-./quickqwen "prompt" [-n 128]       # argv (v10/v11 — broken tokenizer)
+python setup_model.py              # downloads model, generates code into build/, compiles ./quickqwen
+./quickqwen "prompt" [-n 128]
 ```
 
 Mojo version: see `.mojo-version` (currently 0.26.2).
@@ -164,21 +163,12 @@ Mojo version: see `.mojo-version` (currently 0.26.2).
 
 | Path | Purpose |
 |------|---------|
-| `setup.py` | Transpiler → generates `run_inference-generated.mojo` + `model_config_generated.mojo` |
-| `run_inference-generated.mojo` | Generated inference engine — **do not hand-edit** |
+| `setup_model.py` | One-command setup: mojo check, model download, transpiler → `build/`, compile |
 | `_components.mojo` | Shared: SIMD helpers, RMSNorm, softmax, sampling |
 | `gguf_loader.mojo` | GGUF parser + Q8_0 tiled repacking |
-| `model_config.mojo` | Architecture constants + offset functions |
 | `tokenizer.mojo` | BPE tokenizer (Python `regex` interop, cold start ~90s) |
-| `benchmark.py` | Benchmark runner vs ik_llama.cpp |
-| `main_v7.mojo` | Last correct monolithic version — correctness oracle |
-| `v10/` | Transpiler + f32×f32 GEMV |
-| `v11/` | v10 + repack + megafusion + streaming |
-| `v12/` | W8A8 SignedDot GEMV |
-| `v13/` | v12 + SIMD quantization — **latest working** |
-| `v13_threadpool/` | Atomic work-stealing (but same speed)|
-| `v13_exp_layout/` | x4 layout — correct but slower |
-| `v13_plus_phase2/` | x4 phase 2 — **output incorrect** |
+| `build/model_config.mojo` | Generated architecture constants + offset functions |
+| `build/run_inference.mojo` | Generated inference engine — **do not hand-edit** |
 
 ---
 
@@ -186,11 +176,6 @@ Mojo version: see `.mojo-version` (currently 0.26.2).
 
 | Resource | What | Key Patterns |
 |----------|------|-------------|
-| `modular_ref/` | Mojo stdlib source (cloned) | AVX2 int8 dot at `max/kernels/src/linalg/arch/cpu/vnni_intrinsics.mojo:185` |
-| `llamacpp_ref/` | llama.cpp source (cloned) | GGUF loading, quantized GEMV, Qwen3.5 arch |
-| `ref_modeling_qwen3_5.py` | HuggingFace reference (2194 lines) | Canonical forward pass |
-| `ground_truth_trace.py` | HF model hook tracer | Per-layer intermediates from real model |
-| ik_llama.cpp | ihor's llama.cpp fork (binary) | Benchmark target. Use `-c 4096` to avoid 3GB alloc |
-| Mojo MCP (`mojo_*`) | Stdlib docs, execution, validation | `mojo_lookup`, `mojo_search`, `mojo_execute`, `mojo_validate` |
-| DeepWiki MCP | GitHub repo documentation | Query llama.cpp, modular, etc. |
-| `trace_layer*.py` | Python layer tracers | Step-by-step intermediate comparison |
+| [ik_llama.cpp](https://github.com/ikawrakow/ik_llama.cpp) | ihor's llama.cpp fork | Qwen3.5 arch implementation, benchmark target. Use `-c 4096` to avoid 3GB alloc |
+| [llama.cpp](https://github.com/ggml-org/llama.cpp) | Stock C++ inference engine | GGUF loading, quantized GEMV, Qwen3.5 arch |
+| HuggingFace `transformers` | Python reference model | Canonical forward pass for correctness validation |

@@ -15,7 +15,7 @@ Historical record. Dates are April–May 2026.
 | v7 | **First coherent output** — 3 bug fixes (Sᵀ@q, Q/gate, RoPE dim) | 1.68 | ✅ correct |
 | v8 | SIMD weight conversion, core pinning, accumulator unroll | 2.0–3.3 | ❌ **later found garbage** |
 | v9 | int8×int8 merge + activation quantization | 4.45 | ❌ **structured but wrong** |
-| v10 | `setup.py` transpiler, f32×f32 GEMV fallback | 6.98 | ✅ correct |
+| v10 | `setup_model.py` transpiler, f32×f32 GEMV fallback | 6.98 | ✅ correct |
 | v11 | v10 + repack + megafusion + streaming + online attn | 4.1–4.6 sustained | ✅ correct |
 | v12 | W8A8 SignedDot kernel (psign→pmaddubs→pmaddwd) | 11.7 | ✅ correct |
 | v13 | v12 + SIMD quantization | 11.6–15.5 | ✅ **latest working** |

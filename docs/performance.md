@@ -15,6 +15,10 @@
 
 ## Performance Baseline (v13 vs ik_llama.cpp)
 
+> **Note:** This section benchmarks against [ik_llama.cpp](https://github.com/ikawrakow/ik_llama.cpp),
+> the optimized fork studied during development. The README's headline table uses **stock
+> llama.cpp** instead — a different (slower) baseline.
+
 | Metric | QuickQwen v13 | ik_llama.cpp | Ratio |
 |--------|---------------|--------------|-------|
 | Decode tok/s | 11.6–15.5 | 16.6–19.2 | 1.3–1.5× |
@@ -23,7 +27,7 @@
 | L1-dcache miss | 12.9% | 8.0% | 1.61× |
 | Context switches | 15,534 | 90 | 173× |
 | Instructions | 43.8B | 39.9B | 1.10× |
-| Binary size | 293 KB | ~60 MB | — |
+| Binary size | 303 KB | ~60 MB | — |
 
 Numbers vary by CPU governor (powersave ~898 MHz vs performance).
 
