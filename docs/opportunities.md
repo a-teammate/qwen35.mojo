@@ -53,7 +53,7 @@ cpupower frequency-set -g performance
 echo always > /sys/kernel/mm/transparent_hugepage/enabled
 
 # Thread affinity (if FFI available)
-taskset 0x0F ./quickqwen   # pins to physical cores 0-3
+taskset 0x0F ./qwen35.mojo   # pins to physical cores 0-3
 ```
 
 ## Architecture Evolution

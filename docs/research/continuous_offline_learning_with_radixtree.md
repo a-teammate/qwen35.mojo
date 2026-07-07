@@ -5,7 +5,7 @@ CONTINUAL OFFLINE LEARNING — RESEARCH NOTES V2
 PROBLEM
 ============================================================
 
-A Mojo-based inference engine like QuickQwen runs a static GGUF model.
+A Mojo-based inference engine like qwen35.mojo runs a static GGUF model.
 Weights are fixed at build time. All "memory" is ephemeral:
   - KV cache: discarded after each conversation (6 full attn layers)
   - DeltaNet state: reset between sessions (18 DeltaNet layers)
@@ -402,7 +402,7 @@ for occasional finetuning. Alternatives:
    Tree-derived topology signals provide optional supervision.
 
 ============================================================
-RECOMMENDED PATH FOR QUICKQWEN
+RECOMMENDED PATH FOR QWEN35.MOJO
 ============================================================
 
 Phase 0: Radix Tree Infrastructure

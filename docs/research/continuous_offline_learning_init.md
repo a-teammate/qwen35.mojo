@@ -5,7 +5,7 @@ CONTINUAL OFFLINE LEARNING — RESEARCH NOTES
 PROBLEM
 ============================================================
 
-A Mojo-based inference engine like QuickQwen runs a static GGUF model.
+A Mojo-based inference engine like qwen35.mojo runs a static GGUF model.
 The weights are fixed at build time. All "memory" is ephemeral:
   - KV cache: discarded after each conversation
   - DeltaNet state: reset between sessions
@@ -216,7 +216,7 @@ overkill for occasional finetuning. Alternatives:
    gradient-like updates. Closest to "the model evolves itself."
 
 ============================================================
-RECOMMENDED PATH FOR QUICKQWEN
+RECOMMENDED PATH FOR QWEN35.MOJO
 ============================================================
 
 Phase 1: Strategy 3 (persist DeltaNet state)

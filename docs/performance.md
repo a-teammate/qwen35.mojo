@@ -1,4 +1,4 @@
-# Performance Engineering — QuickQwen
+# Performance Engineering — qwen35.mojo
 
 ---
 
@@ -18,7 +18,7 @@
 > **Note:** This section benchmarks against [ik_llama.cpp](https://github.com/ikawrakow/ik_llama.cpp),
 > the optimized fork studied during development.
 
-| Metric | QuickQwen v13 | ik_llama.cpp | Ratio |
+| Metric | qwen35.mojo v13 | ik_llama.cpp | Ratio |
 |--------|---------------|--------------|-------|
 | Decode tok/s | 11.6–15.5 | 16.6–19.2 | 1.3–1.5× |
 | Prefill tok/s | ~12 | ~18 | ~1.5× |
@@ -137,10 +137,10 @@ For 0.8B: f32×f32 GEMV is faster than i8×i8 despite lower arithmetic density.
 
 ```bash
 # Hardware counters
-perf stat -e cycles,instructions,cache-misses,context-switches ./quickqwen
+perf stat -e cycles,instructions,cache-misses,context-switches ./qwen35.mojo
 
 # Hotspot analysis
-perf record -g ./quickqwen && perf report
+perf record -g ./qwen35.mojo && perf report
 
 # Compare vs reference
 perf stat -e cycles,instructions,cache-misses,context-switches \

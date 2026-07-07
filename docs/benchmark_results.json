@@ -4,7 +4,7 @@
     "hardware": "Intel i7-10610U, 4C/8T, 15W, AVX2+FMA3, DDR4-3200, governor=performance",
     "engines": [
       {
-        "name": "quickqwen",
+        "name": "qwen35.mojo",
         "quant": "Q8_0",
         "prefill_tps": [16.05, 15.49, 16.08],
         "decode_tps": [12.43, 12.14, 12.98]
@@ -23,7 +23,7 @@
     "hardware": "Intel i7-10610U, 4C/8T, 15W, AVX2+FMA3, DDR4-3200, governor=performance",
     "engines": [
       {
-        "name": "quickqwen",
+        "name": "qwen35.mojo",
         "quant": "Q8_0",
         "prefill_tps": [15.56, 15.67, 15.23],
         "decode_tps": [12.55, 12.85, 12.15]

@@ -1,13 +1,13 @@
 #!/usr/bin/env python3
 """
-setup_model.py — one-command setup for quickqwen.
+setup_model.py — one-command setup for qwen35.mojo.
 
 Checks for Mojo (installs via uv if missing), downloads the Q8_0 GGUF model,
 generates per-shape-specialized Mojo code into build/, and compiles the binary.
 
 Usage:
     python setup_model.py
-    ./quickqwen "your prompt" -n 64
+    ./qwen35.mojo "your prompt" -n 64
 """
 
 import os
@@ -19,7 +19,7 @@ import urllib.request
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 MODEL_PATH = os.path.join(BASE_DIR, "model.gguf")
 BUILD_DIR = os.path.join(BASE_DIR, "build")
-BINARY_NAME = "quickqwen"
+BINARY_NAME = "qwen35.mojo"
 MOJO_VERSION = "0.26.2"  # verified working; update .mojo-version to match
 
 metadata = {
@@ -1171,7 +1171,7 @@ def main() raises:
         i += 1
 
     print("=" * 60)
-    print("quickqwen")
+    print("qwen35.mojo")
     print("=" * 60)
     print()
 
@@ -1338,7 +1338,7 @@ def download_model():
         return
 
     print(f"  downloading {MODEL_URL}")
-    req = urllib.request.Request(MODEL_URL, headers={"User-Agent": "quickqwen-setup"})
+    req = urllib.request.Request(MODEL_URL, headers={"User-Agent": "qwen35.mojo-setup"})
     with urllib.request.urlopen(req) as resp:
         total = int(resp.headers.get("Content-Length", 0))
         mb = 1024 * 1024
@@ -1382,7 +1382,7 @@ def copy_sources(build_dir):
 
 
 def build_binary(build_dir):
-    """Compile the quickqwen binary via mojo build."""
+    """Compile the qwen35.mojo binary via mojo build."""
     entry = os.path.join(build_dir, "run_inference.mojo")
     binary_path = os.path.join(BASE_DIR, BINARY_NAME)
     cmd = ["mojo", "build", entry, "-o", binary_path, "-Xlinker", "-lm"]
@@ -1395,7 +1395,7 @@ def build_binary(build_dir):
 
 
 def main():
-    print("=== quickqwen setup ===")
+    print("=== qwen35.mojo setup ===")
     print()
 
     print("[1/4] Checking mojo...")

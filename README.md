@@ -1,4 +1,5 @@
-# quickqwen — running a hybrid transformer on a 15 W laptop
+# qwen35.mojo — running a hybrid transformer on a 15 W laptop
+> previous name 'quickqwen'
 
 I built a from-scratch inference engine for **Qwen3.5-0.8B**, compiling down to ~300KB.
 Technically, this SOTA model for local inference introduced a hybrid architecture, it's not a pure transformer.
@@ -31,7 +32,7 @@ DISCLAIMER:
 ## Demo
 
 ```
-$ ./quickqwen "Write a haiku about autumn leaves." -n 48
+$ ./qwen35.mojo "Write a haiku about autumn leaves." -n 48
 
 </think>
 Pale yellow fall leaves fall from the branches.
@@ -54,7 +55,7 @@ Despite the name "quick qwen" we are not there yet. The main feature is the nano
 All numbers on the dev machine: **Intel i7-10610U (4C/8T, 15 W, AVX2+FMA3, DDR4-3200)**,
 Q8_0 weights, CPU governor = `performance`. The reference is **llama.cpp**, the standard C++ CPU inference engine. I benchmarked a stock build, version b1-2083217 (built from source 2026-06-18, cmake Release, GGML_CUDA=OFF).
 
-| Phase | quickqwen | llama.cpp (stock) | Ratio |
+| Phase | qwen35.mojo | llama.cpp (stock) | Ratio |
 |-------|----------:|------------------:|------:|
 | Prefill (~16 tokens) | ~16 t/s | ~63 t/s | ~0.25× |
 | Prefill (~95 tokens) | ~15.5 t/s | ~106 t/s | ~0.15× |
@@ -63,7 +64,7 @@ Q8_0 weights, CPU governor = `performance`. The reference is **llama.cpp**, the 
 
 Decode lands at roughly **0.65× of llama.cpp** — written from scratch in a new language, on
 hardware that lacks the AVX-512 and VNNI instructions those engines lean on. Prefill trails far
-behind because quickqwen does no batched GEMM yet (see [Limitations](#limitations)).
+behind because qwen35.mojo does no batched GEMM yet (see [Limitations](#limitations)).
 
 > **Note on methodology.** Each cell is the mean of 3 runs. Short-prompt prefill in particular has
 > high variance (±25% on llama.cpp). Raw per-run samples are in
@@ -148,9 +149,9 @@ real time. See [`docs/timeline.md`](docs/timeline.md) and
 
 ```bash
 python setup_model.py          # installs Mojo (if missing), downloads the model (~800 MB),
-                               # generates specialized code into build/, compiles ./quickqwen
-./quickqwen "Write a haiku about autumn leaves." -n 64
-./quickqwen "your prompt" -n 128 --bench     # --bench: suppress streaming, just print stats
+                               # generates specialized code into build/, compiles ./qwen35.mojo
+./qwen35.mojo "Write a haiku about autumn leaves." -n 64
+./qwen35.mojo "your prompt" -n 128 --bench     # --bench: suppress streaming, just print stats
 ```
 
 If Mojo isn't in `PATH`, it installs it via [`uv`](https://docs.astral.sh/uv/).
@@ -199,7 +200,7 @@ logged in [`docs/performance.md`](docs/performance.md) under "Mojo Performance G
 ## Repository layout
 
 ```
-quickqwen/
+qwen35.mojo/
 ├── setup_model.py                 # one-command setup: mojo check + model download + codegen + build
 ├── _components.mojo               # kernels: rmsnorm, gemv, W8A8 dot, rope, softmax, quantize
 ├── gguf_loader.mojo               # Q8_0 parser + tiled weight repack

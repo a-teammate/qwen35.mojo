@@ -1,4 +1,4 @@
-# Correctness Playbook — QuickQwen
+# Correctness Playbook — qwen35.mojo
 
 ---
 
@@ -48,7 +48,7 @@
 | G3 | Signed byte | Q8_0 values are uint8 representing signed [−128,127]. Sign-extend: `(v ^ 0x80) − 0x80` | `Int8(UInt8)` → zero-extend | wrong negative weights |
 | G4 | pmaddubs asymmetry | For signed×signed int8: sign-extend **both** operands before `pmaddubs` | Mask trick with wrong arg order (mask must be FIRST) | values off ~2× for negatives |
 | G5 | Sampling format | Thinking model: expects `<think…` prefix, use `temp=0.7, top_k=20, top_p=0.8` | Missing top_p, wrong temp | generates `<think` then early EOS |
-| G6 | Tokenizer input | v12+: stdin pipe (`echo "Hello" \| ./quickqwen`). v10/v11: argv | v10/v11 `--prompt` flag splits into byte-like tokens | garbage tokens from wrong split |
+| G6 | Tokenizer input | v12+: stdin pipe (`echo "Hello" \| ./qwen35.mojo`). v10/v11: argv | v10/v11 `--prompt` flag splits into byte-like tokens | garbage tokens from wrong split |
 
 ---
 

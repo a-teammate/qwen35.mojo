@@ -1,4 +1,4 @@
-# Timeline — QuickQwen Development
+# Timeline — qwen35.mojo Development
 
 Historical record. Dates are April–May 2026.
 
