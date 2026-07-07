@@ -1,21 +1,19 @@
-============================================================
-CONTINUAL OFFLINE LEARNING — RESEARCH NOTES V2
-============================================================
+# Continual Offline Learning: Research Notes V2
 
-PROBLEM
-============================================================
+## Problem
 
-A Mojo-based inference engine like qwen35.mojo runs a static GGUF model.
-Weights are fixed at build time. All "memory" is ephemeral:
+A Mojo inference engine like qwen35.mojo runs a static GGUF model.
+Weights are fixed at build time. All memory is ephemeral:
   - KV cache: discarded after each conversation (6 full attn layers)
   - DeltaNet state: reset between sessions (18 DeltaNet layers)
 
 Every conversation starts from zero. New knowledge requires external
-retrain/fine-tune + new GGUF. Can the model evolve during inference,
-accumulating knowledge from interactions without external retraining?
+retrain or fine-tune plus a new GGUF. Can the model evolve during
+inference, accumulating knowledge from interactions without external
+retraining?
 
 This would eliminate context compaction (sliding window eviction,
-summarization) — the model would internalize what it learns.
+summarization). The model would internalize what it learns.
 
 Architecture context (from spec_v3.md):
   - Qwen3.5-0.8B: hybrid DeltaNet (18 layers) + sigmoid scan attention (6 layers)
@@ -23,21 +21,19 @@ Architecture context (from spec_v3.md):
   - Full attention: FP32 KV cache, sliding window eviction
   - All execution compile-time specialized, no runtime config
 
-============================================================
-UNIFYING INFRASTRUCTURE: THE RADIX TREE
-============================================================
+## Unifying Infrastructure: The Radix Tree
 
 A radix tree (space-efficient prefix trie) becomes the central data
-structure connecting all learning strategies. Originates from SGLang's
-RadixAttention (Zheng et al., 2024) for KV cache reuse, but its
-applications here go far beyond caching.
+structure connecting all learning strategies. SGLang introduced it for
+KV cache reuse (Zheng et al., 2024). Its applications here go far
+beyond caching.
 
 Reference:
   SGLang: Efficiently Programming Large Language Models
   Zheng et al., Jan 2024
   https://www.lmsys.org/blog/2024-01-17-sglang/
   https://arxiv.org/abs/2312.07104
-  Core idea: radix tree maps token-sequence prefixes → KV cache tensors.
+  Core idea: radix tree maps token-sequence prefixes to KV cache tensors.
   LRU eviction. Automatic prefix matching. Replaces ad-hoc cache
   management with a single data structure.
 
@@ -51,24 +47,22 @@ Radix tree stores at each node:
 All operations are CPU-side (tree structure) with GPU-side tensor
 storage managed by LRU eviction. Maintenance overhead is negligible.
 
-------------------------------------------------------------
-RADIX TREE APPLICATIONS
-------------------------------------------------------------
+### Radix Tree Applications
 
 1. AUTOMATIC KV CACHE REUSE (SGLang's original insight)
    Prefix matching across conversations. Shared system prompts, common
-   question templates, repeated tool-call patterns — computed once,
-   reused automatically. Up to 5x throughput improvement demonstrated
-   by SGLang on similar workloads.
+   question templates, repeated tool-call patterns: computed once,
+   reused automatically. SGLang demonstrated up to 5x throughput
+   improvement on similar workloads.
 
 2. DELTANET STATE SNAPSHOTS AT PREFIX BOUNDARIES
-   Map token-sequence prefixes → DeltaNet state snapshots. When a new
+   Map token-sequence prefixes to DeltaNet state snapshots. When a new
    conversation shares a prefix with a prior one, restore the DeltaNet
    state from that snapshot. The model "remembers" what it learned
    during prior context processing.
-   This extends Strategy 3 from "one global persistent state" to "a
-   tree of context-dependent states" — different topics produce
-   different (and useful) state configurations, all indexed by prefix.
+   This extends Strategy 3 from one global persistent state to a tree
+   of context-dependent states. Different topics produce different
+   useful state configurations, all indexed by prefix.
 
 3. SMARTER EVICTION THAN SLIDING WINDOW
    Current spec uses sliding window eviction (spec_v3 #7). Radix tree
@@ -80,7 +74,7 @@ RADIX TREE APPLICATIONS
    During decode, if current generation matches a cached tree path,
    speculatively emit cached continuation tokens and verify in a
    single batch forward pass. If the model agrees (likely for
-   deterministic/routine outputs), skip dozens of decode steps.
+   deterministic or routine outputs), skip dozens of decode steps.
    Frees compute for learning operations (LoRA updates, extra
    self-consistency samples).
 
@@ -88,14 +82,14 @@ RADIX TREE APPLICATIONS
    100 conversations sharing a system prompt store that prefix once.
    Tree structure IS the compression. Leaves hold experience data
    (corrections, outcomes). Replay becomes nearly free because KV
-   cache for shared prefixes is already in the tree.
-   Directly addresses catastrophic forgetting in Strategy 1 without
-   a separate replay buffer implementation.
+   cache for shared prefixes is already in the tree. Addresses
+   catastrophic forgetting in Strategy 1 without a separate replay
+   buffer.
 
 6. LORA ADAPTER ROUTING BY PREFIX
    As the model accumulates LoRA updates from different domains
-   (Strategy 1), the radix tree becomes a router: "prompts matching
-   prefix X use LoRA_X." Tree naturally clusters conversations by
+   (Strategy 1), the radix tree becomes a router: prompts matching
+   prefix X use LoRA_X. Tree naturally clusters conversations by
    topic. Domain-adaptive LoRA selection without a separate classifier.
 
 7. MEMORY-MAPPED PERSISTENT STORE
@@ -105,11 +99,9 @@ RADIX TREE APPLICATIONS
    manages GPU memory budget. Persistent memory without loading
    everything into GPU at once.
 
-------------------------------------------------------------
-SELF-SUPERVISED LOSS FROM TREE TOPOLOGY
-------------------------------------------------------------
+### Self-Supervised Loss from Tree Topology
 
-The radix tree is not just a cache — it is a self-supervised loss
+The radix tree is not just a cache. It is a self-supervised loss
 signal generator. Its structural features directly encode learning
 signals without external labels. The topology IS the curriculum.
 
@@ -140,12 +132,10 @@ prefixes. The tree and model co-evolve. No external labeling needed.
 This loss signal feeds into:
   - Strategy 1: which prefixes to prioritize for LoRA gradient updates
   - Strategy 2: which contexts the hypernetwork should adapt for
-  - Strategy 3: implicit — tree topology guides which DeltaNet state
-    snapshots to retain vs. evict
+  - Strategy 3: tree topology guides which DeltaNet state snapshots
+    to retain vs. evict
 
-============================================================
-STRATEGY 1: ONLINE LORA (EXPLICIT GRADIENT UPDATES)
-============================================================
+## Strategy 1: Online LoRA (Explicit Gradient Updates)
 
 Add low-rank adapter matrices beside each frozen weight. Update ONLY
 LoRA parameters during inference via backpropagation.
@@ -164,12 +154,12 @@ Learning signal:
 
 Radix tree integration:
   - Compressed replay buffer: shared prefixes stored once, replay
-    forward passes are nearly free (KV cache reuse for shared prefixes)
-  - LoRA routing: tree clusters conversations by prefix → domain-specific
-    LoRA selection without a separate classifier
+    forward passes nearly free (KV cache reuse for shared prefixes)
+  - LoRA routing: tree clusters conversations by prefix for
+    domain-specific LoRA selection without a separate classifier
   - Budget allocation: hot prefixes (high hit rate) get more update
-    steps; cold prefixes get less. Tree statistics reveal where to spend
-    limited gradient computation budget
+    steps; cold prefixes get less. Tree statistics reveal where to
+    spend limited gradient computation budget
   - Forward pass acceleration: gradient computation requires repeated
     forward passes over similar prefixes. RadixAttention makes these
     nearly free by reusing cached KV tensors for the 6 full attn layers
@@ -188,7 +178,7 @@ Forgetting mitigation:
 
 Mojo implementation:
   - Backward pass (autograd) through forward computation, LoRA params only
-  - DeltaNet state and KV cache are activations — no gradient needed
+  - DeltaNet state and KV cache are activations: no gradient needed
   - LoRA matrices stored in FP32 (gradient updates need precision)
   - LoRA injection into quantized GEMV: dequant W, add LoRAΔW, proceed
 
@@ -201,9 +191,7 @@ Reference:
   Demonstrated on streaming visual tasks. Extends to any architecture
   with LoRA injection points.
 
-============================================================
-STRATEGY 2: HYPERNETWORK CONTEXT → WEIGHTS (NO BACKPROP)
-============================================================
+## Strategy 2: Hypernetwork Context to Weights (No Backprop)
 
 A second small network reads context and directly PRODUCES LoRA weight
 deltas in a single forward pass. No gradient computation at runtime.
@@ -214,12 +202,12 @@ Mechanism:
   3. Apply LoRA to frozen model
   4. Generate with adapted model
 
-Hypernetwork is trained OFFLINE to learn "text → useful weight changes."
-At inference, pure forward pass.
+Hypernetwork is trained OFFLINE to learn "text to useful weight
+changes." At inference, pure forward pass.
 
 Radix tree integration:
-  - Cache hypernetwork outputs: same context prefix → same LoRA adapter.
-    Store in tree to avoid re-running hypernetwork for repeated contexts
+  - Cache hypernetwork outputs: same context prefix produces same LoRA
+    adapter. Store in tree to avoid re-running hypernetwork for repeated contexts
   - Routing: tree topology reveals which contexts need adaptation
     (high fork count = uncertain = good candidate for hypernetwork LoRA)
   - Training signal: tree statistics (fork/consensus patterns) identify
@@ -256,9 +244,7 @@ Reference:
   model required. Two-pass system: memory extraction then LoRA
   generation. Demonstrated on diverse NLP tasks.
 
-============================================================
-STRATEGY 3: DELTANET STATE AS IMPLICIT LEARNING (ZERO ARCHITECTURE CHANGE)
-============================================================
+## Strategy 3: DeltaNet State as Implicit Learning (Zero Architecture Change)
 
 For linear attention transformers, in-context learning IS mathematically
 equivalent to gradient descent on weights. No new components needed.
@@ -283,22 +269,22 @@ Mechanism:
      weight changes (LoRA or full fine-tune)
 
 No backpropagation needed for the online part. The DeltaNet forward
-pass IS the learning. Qwen3.5's architecture already has this —
-75% of layers are literally a learning algorithm.
+pass IS the learning. Qwen3.5's architecture already has this. 75%
+of layers are literally a learning algorithm.
 
 Radix tree integration:
   - State snapshots indexed by prefix: instead of one global persistent
     state, the tree stores DeltaNet state snapshots at key prefix
     boundaries. New conversation matching a prior prefix restores the
-    appropriate state — context-dependent memory, not global memory
+    appropriate state: context-dependent memory, not global memory
   - Tree topology guides which snapshots to retain (hot prefixes) vs.
-    evict (cold/unvisited). LRU eviction IS forgetting — automatic,
+    evict (cold/unvisited). LRU eviction IS forgetting: automatic,
     principled, no manual tuning
   - Conv1d circular buffer (kernel=4, per DeltaNet layer) also
     persisted alongside state snapshots in the tree
   - This gives the 6 full attention layers their own persistent memory
     via KV cache reuse, and the 18 DeltaNet layers theirs via state
-    snapshots — unified by one data structure
+    snapshots, unified by one data structure
 
 Memory architecture:
   - GGUF weights: LONG-TERM memory (frozen)
@@ -309,9 +295,9 @@ Memory architecture:
 Limitations:
   - DeltaNet state has finite capacity (144 KB per snapshot for 0.8B)
   - Old knowledge overwritten by β decay gate
-  - No explicit loss signal — learning is unsupervised (mitigated by
+  - No explicit loss signal: learning is unsupervised (mitigated by
     tree topology signals)
-  - Quality of "learned" knowledge unverified
+  - Quality of learned knowledge unverified
 
 Mojo implementation:
   - Simplest start: don't call state.reset() between sessions
@@ -338,9 +324,7 @@ Reference:
   own weights based on context. Foundation for understanding DeltaNet
   as a learning system.
 
-============================================================
-FULL MEMORY ARCHITECTURE (ALL STRATEGIES COMBINED)
-============================================================
+## Full Memory Architecture (All Strategies Combined)
 
   Tier       Storage                     Persistence      Update cost
   ───────── ─────────────────────────── ──────────────── ──────────────
@@ -359,9 +343,7 @@ The radix tree is the single index managing all medium-term memory.
 One data structure, one eviction policy, one persistence mechanism.
 LRU eviction manages GPU memory budget across all stored tensor types.
 
-============================================================
-SELF-SUPERVISED LOSS SIGNALS (ALTERNATIVES TO RL)
-============================================================
+## Self-Supervised Loss Signals (Alternatives to RL)
 
 RL (PPO, GRPO, DPO) is one way to get a learning signal, but overkill
 for occasional finetuning. Alternatives:
@@ -373,16 +355,16 @@ for occasional finetuning. Alternatives:
    from Tree Topology" section above.
 
 2. SUPERVISED LEARNING ON CORRECTIONS
-   User says "no, the answer is X" → (prompt, X) is a training
+   User says "no, the answer is X". Then (prompt, X) is a training
    example. Cross-entropy loss. Simple, effective. Stored in radix
    tree as experience data at the conversation's leaf node.
 
 3. SURPRISE-DRIVEN REPLAY
    Track which tokens the model predicted poorly (high loss).
    Replay those examples with higher weight during update steps.
-   Radix tree compression makes replay efficient — shared prefixes
+   Radix tree compression makes replay efficient: shared prefixes
    computed once. Focuses limited update budget on what the model
-   doesn't know.
+   does not know.
 
    Reference:
    Surprise-Driven Prioritised Replay for Continual LLM Learning
@@ -401,9 +383,7 @@ for occasional finetuning. Alternatives:
    gradient-like updates. Closest to "the model evolves itself."
    Tree-derived topology signals provide optional supervision.
 
-============================================================
-RECOMMENDED PATH FOR QWEN35.MOJO
-============================================================
+## Recommended Path for qwen35.mojo
 
 Phase 0: Radix Tree Infrastructure
   - Implement radix tree (CPU-side, prefix trie with LRU eviction)
@@ -417,7 +397,7 @@ Phase 1: Strategy 3 + Radix Tree State Snapshots
   - Persist DeltaNet state between sessions (don't reset)
   - Store DeltaNet state snapshots in radix tree at prefix boundaries
   - Restore matching snapshots on prefix hit
-  - Observe whether accumulated/restore state improves generation
+  - Observe whether accumulated or restored state improves generation
   - Both layer types now have persistent memory via one data structure
   - Risk: state overflow, quality degradation, snapshot coherence
 
@@ -443,15 +423,13 @@ Phase 4: Self-Consistency + Speculative Decoding
   - Freed compute cycles fund LoRA update steps
   - Risk: sample quality, verification cost
 
-Phase 5: Strategy 2 (Hypernetwork) — if needed
+Phase 5: Strategy 2 (Hypernetwork), if needed
   - Train or obtain SHINE-style hypernetwork for Qwen3.5
   - Cache hypernetwork outputs in radix tree
   - Route contexts to cached adapters via prefix matching
   - Risk: separate training pipeline, hypernetwork quality
 
-============================================================
-REFERENCES
-============================================================
+## References
 
 SGLang / RadixAttention:
   Zheng et al., Jan 2024
@@ -462,7 +440,7 @@ Online-LoRA:
   Wei et al., WACV 2025
   https://openaccess.thecvf.com/content/WACV2025/papers/Wei_Online-LoRA_Task-Free_Online_Continual_Learning_via_Low_Rank_Adaptation_WACV_2025_paper.pdf
 
-SHINE (Hypernetwork → LoRA):
+SHINE (Hypernetwork to LoRA):
   Liu et al., arXiv 2602.06358, Feb 2026
   https://arxiv.org/abs/2602.06358
 
@@ -477,7 +455,3 @@ Linear Transformers = Fast Weight Programmers:
 Surprise-Driven Replay:
   OpenReview, 2025
   https://openreview.net/pdf?id=IgZWU75BLL
-
-============================================================
-END OF RESEARCH NOTES V2
-============================================================

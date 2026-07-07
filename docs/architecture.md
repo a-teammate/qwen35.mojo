@@ -1,11 +1,9 @@
-# Architecture Reference — qwen35.mojo
+# Architecture Reference: qwen35.mojo
 
 Qwen3.5-0.8B inference engine in Mojo.
 Hybrid Gated DeltaNet (18 layers) + GQA Softmax Attention (6 layers).
 Q8_0 GGUF, token-by-token decode.
 `setup_model.py` Python transpiler generates per-shape-specialized GEMV kernels.
-
----
 
 ## Constants
 
@@ -25,8 +23,6 @@ Q8_0 GGUF, token-by-token decode.
 | FFN_DIM | 3584 | SwiGLU up/gate |
 | CONV1D_KERNEL | 4 | Causal conv1d in DeltaNet |
 | KV_CACHE_CAP | 4096 | Sliding window |
-
----
 
 ## DeltaNet Forward (per token per layer)
 
@@ -79,8 +75,6 @@ Q8_0 GGUF, token-by-token decode.
 | 3 | ffn_out = up × silu(gate_val) | [3584] |
 | 4 | ffn_out = ffn_down @ ffn_out | [1024] |
 
----
-
 ## Weight Tensor Contract (DeltaNet Layer)
 
 | GGUF Name | Shape | Format | Convention |
@@ -99,10 +93,8 @@ Q8_0 GGUF, token-by-token decode.
 | blk.{N}.ffn_gate.weight | [3584, 1024] | Q8_0 | |
 | blk.{N}.ffn_down.weight | [1024, 3584] | Q8_0 | |
 
-FA layers: same FFN tensors, separate Q/K/V projections + q_norm/k_norm + attn_output_gate.
-Exact GGUF tensor names for FA differ from DN — see `setup_model.py` resolve_layer_weights.
-
----
+FA layers use the same FFN tensors, with separate Q/K/V projections + q_norm/k_norm + attn_output_gate.
+Exact GGUF tensor names for FA differ from DN; see `setup_model.py` resolve_layer_weights.
 
 ## FLOP Budget (per token)
 
@@ -119,9 +111,7 @@ Exact GGUF tensor names for FA differ from DN — see `setup_model.py` resolve_l
 | FA out 2048×1K | 6 | 13M | 1.3% |
 | **Total GEMV** | **97+** | **~970M** | **100%** |
 
-97+ `parallelize` calls per token → 97+ mutex/condvar barriers.
-
----
+97+ `parallelize` calls per token. Each one is a mutex/condvar barrier.
 
 ## Memory
 
@@ -134,8 +124,6 @@ Exact GGUF tensor names for FA differ from DN — see `setup_model.py` resolve_l
 | Conv buffers | ~1.7 MB | 18 layers × 6144 × 4B |
 | Embedding | tied | token_embd = output projection |
 
----
-
 ## Special Conventions
 
 - **Q/gate interleaved**: FA Q proj outputs `[Q₀(256), g₀(256), Q₁(256), g₁(256), …]`, **not** `[Q_all, gate_all]`
@@ -146,8 +134,6 @@ Exact GGUF tensor names for FA differ from DN — see `setup_model.py` resolve_l
 - **DN uses NO RoPE**: L2-normalization on q and k
 - **Conv1d layout**: GGUF stores [C,K], access `kernel[c*4+t]`
 
----
-
 ## Build & Run
 
 ```bash
@@ -157,20 +143,16 @@ python setup_model.py              # downloads model, generates code into build/
 
 Mojo version: see `.mojo-version` (currently 0.26.2).
 
----
-
 ## Project File Map
 
 | Path | Purpose |
 |------|---------|
-| `setup_model.py` | One-command setup: mojo check, model download, transpiler → `build/`, compile |
+| `setup_model.py` | One-command setup: mojo check, model download, transpiler into `build/`, compile |
 | `_components.mojo` | Shared: SIMD helpers, RMSNorm, softmax, sampling |
 | `gguf_loader.mojo` | GGUF parser + Q8_0 tiled repacking |
 | `tokenizer.mojo` | BPE tokenizer (Python `regex` interop) |
 | `build/model_config.mojo` | Generated architecture constants + offset functions |
-| `build/run_inference.mojo` | Generated inference engine — **do not hand-edit** |
-
----
+| `build/run_inference.mojo` | Generated inference engine (**do not hand-edit**) |
 
 ## External References
 
