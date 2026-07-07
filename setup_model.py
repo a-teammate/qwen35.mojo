@@ -6,8 +6,8 @@ Checks for Mojo (installs via uv if missing), downloads the Q8_0 GGUF model,
 generates per-shape-specialized Mojo code into build/, and compiles the binary.
 
 Usage:
-    python setup_model.py
-    ./qwen35.mojo "your prompt" -n 64
+    python setup_model.py (once)
+    ./qwen35 "your prompt" -n 64
 """
 
 import os
@@ -19,7 +19,7 @@ import urllib.request
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 MODEL_PATH = os.path.join(BASE_DIR, "model.gguf")
 BUILD_DIR = os.path.join(BASE_DIR, "build")
-BINARY_NAME = "qwen35.mojo"
+BINARY_NAME = "qwen35"
 MOJO_VERSION = "0.26.2"  # verified working; update .mojo-version to match
 
 metadata = {

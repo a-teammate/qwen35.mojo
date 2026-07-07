@@ -36,7 +36,7 @@ DISCLAIMER:
 ## Demo
 
 ```
-$ ./qwen35.mojo "Write a haiku about autumn leaves." -n 48
+$ ./qwen35 "Write a haiku about autumn leaves." -n 48
 
 </think>
 Pale yellow fall leaves fall from the branches.
@@ -144,9 +144,9 @@ real time. See [`docs/timeline.md`](docs/timeline.md) and
 
 ```bash
 python setup_model.py          # installs Mojo (if missing), downloads the model (~800 MB),
-                               # generates specialized code into build/, compiles ./qwen35.mojo
-./qwen35.mojo "Write a haiku about autumn leaves." -n 64
-./qwen35.mojo "your prompt" -n 128 --bench     # --bench: suppress streaming, just print stats
+                               # generates specialized code into build/, compiles ./qwen35
+./qwen35 "Write a haiku about autumn leaves." -n 64
+./qwen35 "your prompt" -n 128 --bench     # --bench: suppress streaming, just print stats
 ```
 
 If Mojo isn't in `PATH`, it installs it via [`uv`](https://docs.astral.sh/uv/).

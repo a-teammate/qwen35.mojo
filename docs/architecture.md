@@ -137,8 +137,8 @@ Exact GGUF tensor names for FA differ from DN; see `setup_model.py` resolve_laye
 ## Build & Run
 
 ```bash
-python setup_model.py              # downloads model, generates code into build/, compiles ./qwen35.mojo
-./qwen35.mojo "prompt" [-n 128]
+python setup_model.py              # downloads model, generates code into build/, compiles ./qwen35
+./qwen35 "prompt" [-n 128]
 ```
 
 Mojo version: see `.mojo-version` (currently 0.26.2).

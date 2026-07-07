@@ -50,7 +50,7 @@ Companion: `research/continuous_offline_learning_with_radixtree.md`
 
 ### Step 0: The Starting Position
 
-A Mojo inference engine (`qwen35.mojo`) runs Qwen3.5-0.8B, a hybrid model
+A Mojo inference engine runs Qwen3.5-0.8B, a hybrid model
 with 18 GatedDeltaNet layers (linear attention, fixed-size recurrent state S)
 and 6 sigmoid scan attention layers (standard KV cache). Weights are frozen at
 build time. All memory is ephemeral: KV cache is discarded after each

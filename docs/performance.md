@@ -117,10 +117,10 @@ For 0.8B: f32×f32 GEMV is faster than i8×i8 despite lower arithmetic density.
 
 ```bash
 # Hardware counters
-perf stat -e cycles,instructions,cache-misses,context-switches ./qwen35.mojo
+perf stat -e cycles,instructions,cache-misses,context-switches ./qwen35
 
 # Hotspot analysis
-perf record -g ./qwen35.mojo && perf report
+perf record -g ./qwen35 && perf report
 
 # Compare vs reference
 perf stat -e cycles,instructions,cache-misses,context-switches \
